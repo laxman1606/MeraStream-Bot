@@ -59,13 +59,13 @@ async def handle_video(client, message: Message):
         if RENDER_URL.endswith('/'):
             RENDER_URL = RENDER_URL[:-1]
             
-        # NAYA LOGIC: HTTP link banana taaki Blue color aaye aur Button lag sake
+        # HTTP link banana taaki Blue color aaye aur Button lag sake
         watch_link = f"{RENDER_URL}/watch/{file_id}"
         
         # Professional Telegram Button
         keyboard = InlineKeyboardMarkup(
             [
-                [InlineKeyboardButton("▶️ Open in MeraStream App", url=watch_link)],
+                [InlineKeyboardButton("▶️ Play in MeraStream", url=watch_link)],
                 [InlineKeyboardButton("🔗 Share Link", switch_inline_query=watch_link)]
             ]
         )
@@ -77,7 +77,6 @@ async def handle_video(client, message: Message):
         elif message.document:
             file_size_mb = message.document.file_size / (1024 * 1024)
         
-        # Naya Professional Message
         await msg.edit_text(
             f"✅ **MeraStream Link Generated!**\n\n"
             f"🎬 **File ID:** `{file_id}`\n"
@@ -85,7 +84,7 @@ async def handle_video(client, message: Message):
             f"🔗 **Link:** {watch_link}\n\n"
             f"👇 Click button below to stream directly in the App!",
             reply_markup=keyboard,
-            disable_web_page_preview=False # Isse preview aayega
+            disable_web_page_preview=False
         )
     except Exception as e:
         await msg.edit_text(f"❌ Error aagaya bro: {e}")
@@ -100,38 +99,60 @@ routes = web.RouteTableDef()
 async def hello(request):
     return web.Response(text="✅ MeraStream Server is Running Perfectly! 🔥")
 
-# NAYA ROUTE: Jo HTTP link ko handle karke App me redirect karega
+# ==========================================
+# 🔥 AGGRESSIVE AUTO-REDIRECT LOGIC
+# ==========================================
 @routes.get('/watch/{msg_id}')
 async def watch_page(request):
     msg_id = request.match_info['msg_id']
     RENDER_URL = os.environ.get("RENDER_URL", "").strip().rstrip('/')
     
     stream_link = f"{RENDER_URL}/stream/{msg_id}"
-    app_deep_link = f"MeraStream://play?url={stream_link}"
     
-    # Ye chota sa code browser ko direct App open karne ka signal dega
+    # 💥 Android Intent URL: Ye direct OS ko force karta hai app kholne ke liye
+    # (Dhyan rakhna: package=com.merastream.app wahi hona chahiye jo Android studio me tha)
+    intent_link = f"intent://play?url={stream_link}#Intent;scheme=MeraStream;package=com.merastream.app;end"
+    
     html_page = f"""
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
     <head>
-        <title>MeraStream - Watch Video</title>
-        <meta property="og:title" content="▶️ Play Video in MeraStream">
-        <meta property="og:description" content="Click to stream this video directly in high quality.">
-        <meta property="og:image" content="https://i.imgur.com/your-custom-logo.jpg">
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>MeraStream - Opening...</title>
         <style>
-            body {{ background-color: #121212; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 20%; }}
-            .btn {{ background-color: #E50914; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-size: 20px; font-weight: bold; }}
+            body {{ background-color: #000000; color: white; font-family: sans-serif; text-align: center; margin-top: 40%; }}
+            .loader {{ border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 0 auto 20px auto; }}
+            @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+            .btn {{ background-color: #E50914; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin-top: 20px; font-size: 16px; border: none; }}
         </style>
     </head>
     <body>
-        <h2>MeraStream</h2>
-        <p>Opening app... If not opened automatically, click below:</p>
-        <br>
-        <a href="{app_deep_link}" class="btn">▶️ Open App</a>
+        <div class="loader"></div>
+        <h2>Opening MeraStream App... 🚀</h2>
+        <p style="color: #888; font-size: 14px;">Please wait while we redirect you...</p>
         
+        <!-- Hidden button for JS auto-click bypass -->
+        <a id="autoClickBtn" href="{intent_link}" style="display:none;">Auto Click</a>
+        
+        <!-- Manual button just in case strict browsers block everything -->
+        <a href="{intent_link}" class="btn">▶️ Tap here if App doesn't open</a>
+
         <script>
-            // Auto redirect to Android App
-            window.location.href = "{app_deep_link}";
+            // 1. Direct Intent Redirect (Works on most Android devices)
+            setTimeout(function() {{
+                window.location.href = "{intent_link}";
+            }}, 100);
+
+            // 2. JS Auto-Click Simulation (Bypasses Telegram In-App Browser Blocks)
+            setTimeout(function() {{
+                document.getElementById('autoClickBtn').click();
+            }}, 400);
+            
+            // 3. Fallback replace method
+            setTimeout(function() {{
+                window.location.replace("{intent_link}");
+            }}, 800);
         </script>
     </body>
     </html>
