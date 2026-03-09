@@ -1,10 +1,14 @@
-import os
 import asyncio
+# MAGIC TRICK: Pyrogram import hone se pehle Event Loop bana do!
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
+import os
 from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 
-# Tumhare environment variables ko safely extract karna (trailing spaces hata ke)
+# Tumhare environment variables ko safely extract karna
 API_ID_STR = os.environ.get("API_ID", "").strip()
 API_HASH = os.environ.get("API_HASH", "").strip()
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -23,7 +27,7 @@ except ValueError:
 
 PORT = int(os.environ.get("PORT", 8080))
 
-# Pyrogram Client - Yahan sirf setup hai, start niche karenge
+# Pyrogram Client - Yahan sirf setup hai
 app = Client(
     "MeraStreamBot",
     api_id=API_ID,
@@ -130,16 +134,12 @@ async def main():
         print(f"❌ BOT START FAILED: {e}")
         return # Agar bot fail hua to aage badhne ka fayda nahi
 
-    # Ye function program ko band hone se rokega aur background me chalne dega
     print("🔥 Everything is running. Waiting for messages...")
     await idle()
     
-    # Jab server band hoga tab cleanup karega
     print("🛑 Stopping services...")
     await app.stop()
     await runner.cleanup()
 
 if __name__ == "__main__":
-    # Naya tarika event loop chalane ka (Render ke liye best)
-    loop = asyncio.get_event_loop_policy().get_event_loop()
     loop.run_until_complete(main())
