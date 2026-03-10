@@ -19,7 +19,10 @@ PORT = int(os.environ.get("PORT", 8080))
 
 app = Client("MeraStreamBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --- BOT COMMANDS ---
+# ==========================================
+# 🤖 BOT COMMANDS
+# ==========================================
+
 @app.on_message(filters.command("start"))
 async def start_msg(client, message: Message):
     await message.reply_text(
@@ -64,31 +67,32 @@ async def handle_video(client, message: Message):
     except Exception as e:
         await msg.edit_text(f"❌ Error: {e}")
 
-# --- WEB SERVER LOGIC ---
+# ==========================================
+# 🌐 WEB SERVER & REDIRECT LOGIC
+# ==========================================
 routes = web.RouteTableDef()
 
 @routes.get('/')
 async def hello(request):
     return web.Response(text="MeraStream Engine is ALIVE! 🚀", content_type='text/plain')
 
-# ✨ NAYA ROUTE: Asli Video Thumbnail dikhane ke liye ✨
+# ✨ Asli Video Thumbnail dikhane ke liye Route ✨
 @routes.get('/thumb/{msg_id}.jpg')
 async def get_thumb(request):
     msg_id = int(request.match_info['msg_id'])
     try:
         message = await app.get_messages(CHANNEL_ID, msg_id)
         file = message.video or message.document
-        # Agar video me thumbnail hai toh usko memory me download karke dikhao
         if file and getattr(file, "thumbs", None):
             thumb_data = await app.download_media(file.thumbs[0].file_id, in_memory=True)
             return web.Response(body=thumb_data.getvalue(), content_type='image/jpeg')
     except Exception as e:
         print(f"Thumb error: {e}")
     
-    # Agar thumbnail nahi mila to ye default premium red image dikhayega
+    # Default image agar thumbnail na ho
     raise web.HTTPFound('https://i.imgur.com/your-fallback-logo.jpg')
 
-# ✨ SMART REDIRECT PAGE (Fix Auto-Open Issue) ✨
+# ✨ SMART REDIRECT PAGE (Fix Auto-Open Issue with Android Intent) ✨
 @routes.get('/watch/{msg_id}')
 async def watch_page(request):
     msg_id = request.match_info['msg_id']
@@ -98,7 +102,10 @@ async def watch_page(request):
     app_deep_link = f"MeraStream://play?url={stream_link}"
     thumb_link = f"{RENDER_URL}/thumb/{msg_id}.jpg"
     
-    # HTML File - Jisme Asli Thumbnail (Large Image) aur Force Redirect hai
+    # 🔥 PRO TRICK: Android Intent URI (Bypasses Telegram WebView Block)
+    # Note: 'com.merastream.app' tumhara Android Studio ka package name hai
+    intent_uri = f"intent://play?url={stream_link}#Intent;scheme=MeraStream;package=com.merastream.app;end;"
+    
     html_content = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -107,7 +114,6 @@ async def watch_page(request):
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>MeraStream - Watch Video</title>
         
-        <!-- BADA THUMBNAIL DIKHANE KE LIYE METATAGS -->
         <meta name="twitter:card" content="summary_large_image">
         <meta property="og:title" content="▶️ Watch Video in MeraStream">
         <meta property="og:description" content="Click here to stream this video in high quality inside the app.">
@@ -128,7 +134,7 @@ async def watch_page(request):
                 background-color: #e50914; color: white; padding: 15px 30px; text-decoration: none;
                 border-radius: 8px; font-weight: bold; font-size: 18px; margin-top: 20px;
             }}
-            img {{ max-width: 80%; border-radius: 10px; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); }}
+            img {{ max-width: 80%; border-radius: 10px; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); display: none; }}
         </style>
     </head>
     <body>
@@ -136,19 +142,19 @@ async def watch_page(request):
         <h2>Opening App Automatically...</h2>
         <p>Please wait while we redirect you to the video.</p>
         
-        <!-- Hidden button jisko javascript khud click karega -->
-        <a id="autoLink" href="{app_deep_link}" class="btn">CLICK TO OPEN APP</a>
+        <!-- Button me ab Intent URI laga hai -->
+        <a id="autoLink" href="{intent_uri}" class="btn">CLICK TO OPEN APP</a>
 
         <script>
-            // Ye script Telegram browser ko force karegi app kholne ke liye
+            // Advanced Android WebView Bypass
             window.onload = function() {{
-                var btn = document.getElementById("autoLink");
-                // Tarika 1: Fake user click
-                btn.click(); 
-                // Tarika 2: Location replace (Agar click fail ho jaye)
+                // Tarika 1: Direct Intent replace (Android OS native intercept karega)
+                window.location.replace("{intent_uri}");
+                
+                // Tarika 2: Agar Intent block ho jaye (kuch phones me), toh custom scheme try karega
                 setTimeout(function() {{
-                    window.location.replace("{app_deep_link}");
-                }}, 800);
+                    window.location.href = "{app_deep_link}";
+                }}, 1000);
             }};
         </script>
     </body>
@@ -156,7 +162,9 @@ async def watch_page(request):
     """
     return web.Response(text=html_content, content_type='text/html')
 
-# 🚀 STREAMING ENGINE (Range Support)
+# ==========================================
+# 🚀 ADVANCED STREAMING ENGINE (Range Support)
+# ==========================================
 @routes.get('/stream/{msg_id}')
 async def stream_video(request):
     msg_id = int(request.match_info['msg_id'])
