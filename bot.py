@@ -5,6 +5,7 @@ asyncio.set_event_loop(loop)
 
 import os
 import re
+from io import BytesIO
 from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -22,16 +23,13 @@ app = Client("MeraStreamBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TO
 @app.on_message(filters.command("start"))
 async def start_msg(client, message: Message):
     await message.reply_text(
-        "👋 **Welcome to MeraStream Pro Engine!**\n\n"
-        "Mujhe koi bhi badi video file bhejo, main makkhan ki tarah streaming link bana dunga.\n\n"
-        "✅ 2GB File Support\n"
-        "✅ Fast Seeking (Range Support)\n"
-        "✅ Auto App Redirect"
+        "👋 **Welcome to MeraStream Pro!**\n\n"
+        "Mujhe koi bhi video bhejo, main uska HD Streaming Link aur Thumbnail generate karunga!"
     )
 
 @app.on_message(filters.video | filters.document)
 async def handle_video(client, message: Message):
-    msg = await message.reply_text("⏳ Processing your large file... Please wait!")
+    msg = await message.reply_text("⏳ Processing your file... Please wait!")
     try:
         # DB Channel me forward karna backup ke liye
         forwarded_msg = await message.forward(CHANNEL_ID)
@@ -40,17 +38,27 @@ async def handle_video(client, message: Message):
         RENDER_URL = os.environ.get("RENDER_URL", "").strip().rstrip('/')
         watch_link = f"{RENDER_URL}/watch/{file_id}"
         
+        # File Name aur Size nikalna
+        file = message.video or message.document
+        file_name = getattr(file, "file_name", None) or "MeraStream_Video.mp4"
+        file_size = getattr(file, "file_size", 0)
+        
+        # Size ko MB ya GB me convert karna
+        if file_size < 1024 * 1024 * 1024:
+            size_str = f"{file_size / (1024 * 1024):.2f} MB"
+        else:
+            size_str = f"{file_size / (1024 * 1024 * 1024):.2f} GB"
+        
         # Professional Inline Button
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("▶️ Play in MeraStream App", url=watch_link)]
         ])
         
-        file_name = message.video.file_name if message.video else message.document.file_name
-        
         await msg.edit_text(
-            f"🎬 **File Name:** `{file_name}`\n\n"
+            f"🎬 **File Name:** `{file_name}`\n"
+            f"📦 **Size:** `{size_str}`\n\n"
             f"🔗 **Streaming Link:** {watch_link}\n\n"
-            f"🚀 _Click the button below to open directly in your Android App!_",
+            f"🚀 _Click the link or button below to stream directly!_",
             reply_markup=keyboard
         )
     except Exception as e:
@@ -61,89 +69,94 @@ routes = web.RouteTableDef()
 
 @routes.get('/')
 async def hello(request):
-    return web.Response(text="MeraStream Pro Engine is ALIVE! 🚀", content_type='text/plain')
+    return web.Response(text="MeraStream Engine is ALIVE! 🚀", content_type='text/plain')
 
-# ✨ NAYA SMART REDIRECT PAGE ✨
+# ✨ NAYA ROUTE: Asli Video Thumbnail dikhane ke liye ✨
+@routes.get('/thumb/{msg_id}.jpg')
+async def get_thumb(request):
+    msg_id = int(request.match_info['msg_id'])
+    try:
+        message = await app.get_messages(CHANNEL_ID, msg_id)
+        file = message.video or message.document
+        # Agar video me thumbnail hai toh usko memory me download karke dikhao
+        if file and getattr(file, "thumbs", None):
+            thumb_data = await app.download_media(file.thumbs[0].file_id, in_memory=True)
+            return web.Response(body=thumb_data.getvalue(), content_type='image/jpeg')
+    except Exception as e:
+        print(f"Thumb error: {e}")
+    
+    # Agar thumbnail nahi mila to ye default premium red image dikhayega
+    raise web.HTTPFound('https://i.imgur.com/your-fallback-logo.jpg')
+
+# ✨ SMART REDIRECT PAGE (Fix Auto-Open Issue) ✨
 @routes.get('/watch/{msg_id}')
 async def watch_page(request):
     msg_id = request.match_info['msg_id']
     RENDER_URL = os.environ.get("RENDER_URL", "").strip().rstrip('/')
     
-    # Direct Stream Link (For Player)
     stream_link = f"{RENDER_URL}/stream/{msg_id}"
-    # Deep Link (To open App)
     app_deep_link = f"MeraStream://play?url={stream_link}"
+    thumb_link = f"{RENDER_URL}/thumb/{msg_id}.jpg"
     
-    # Full Professional HTML with Meta Tags for Telegram Preview
+    # HTML File - Jisme Asli Thumbnail (Large Image) aur Force Redirect hai
     html_content = f"""
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>MeraStream - Opening Video</title>
+        <title>MeraStream - Watch Video</title>
         
-        <!-- Telegram/Social Media Preview Tags -->
-        <meta property="og:title" content="▶️ Play Video in MeraStream">
-        <meta property="og:description" content="Stream high-quality video directly in your app without downloading.">
-        <meta property="og:image" content="https://i.imgur.com/8m5uR6y.png"> <!-- Yahan apna logo link daal sakte ho -->
-        <meta property="og:type" content="video.other">
+        <!-- BADA THUMBNAIL DIKHANE KE LIYE METATAGS -->
+        <meta name="twitter:card" content="summary_large_image">
+        <meta property="og:title" content="▶️ Watch Video in MeraStream">
+        <meta property="og:description" content="Click here to stream this video in high quality inside the app.">
+        <meta property="og:image" content="{thumb_link}">
         
         <style>
             body {{
-                background-color: #0f0f0f;
-                color: #ffffff;
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                height: 100vh;
-                margin: 0;
+                background-color: #121212; color: #ffffff; font-family: Arial, sans-serif;
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                height: 100vh; margin: 0; text-align: center;
             }}
             .loader {{
-                border: 4px solid #f3f3f3;
-                border-top: 4px solid #e50914;
-                border-radius: 50%;
-                width: 40px;
-                height: 40px;
-                animation: spin 1s linear infinite;
-                margin-bottom: 20px;
+                border: 4px solid #333; border-top: 4px solid #e50914; border-radius: 50%;
+                width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 20px;
             }}
             @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
             .btn {{
-                background-color: #e50914;
-                color: white;
-                padding: 12px 24px;
-                text-decoration: none;
-                border-radius: 8px;
-                font-weight: bold;
-                margin-top: 20px;
-                transition: 0.3s;
+                background-color: #e50914; color: white; padding: 15px 30px; text-decoration: none;
+                border-radius: 8px; font-weight: bold; font-size: 18px; margin-top: 20px;
             }}
-            .btn:hover {{ background-color: #b20710; }}
-            h2 {{ margin-bottom: 10px; }}
-            p {{ color: #aaa; }}
+            img {{ max-width: 80%; border-radius: 10px; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); }}
         </style>
     </head>
     <body>
         <div class="loader"></div>
-        <h2>Opening MeraStream App...</h2>
-        <p>If the app doesn't open automatically, click the button below.</p>
-        <a href="{app_deep_link}" class="btn">OPEN IN APP</a>
+        <h2>Opening App Automatically...</h2>
+        <p>Please wait while we redirect you to the video.</p>
+        
+        <!-- Hidden button jisko javascript khud click karega -->
+        <a id="autoLink" href="{app_deep_link}" class="btn">CLICK TO OPEN APP</a>
 
         <script>
-            // Auto redirect logic
-            setTimeout(function() {{
-                window.location.href = "{app_deep_link}";
-            }}, 500);
+            // Ye script Telegram browser ko force karegi app kholne ke liye
+            window.onload = function() {{
+                var btn = document.getElementById("autoLink");
+                // Tarika 1: Fake user click
+                btn.click(); 
+                // Tarika 2: Location replace (Agar click fail ho jaye)
+                setTimeout(function() {{
+                    window.location.replace("{app_deep_link}");
+                }}, 800);
+            }};
         </script>
     </body>
     </html>
     """
     return web.Response(text=html_content, content_type='text/html')
 
-# 🚀 ADVANCED STREAMING ENGINE (Range/Seek Support for 1GB+)
+# 🚀 STREAMING ENGINE (Range Support)
 @routes.get('/stream/{msg_id}')
 async def stream_video(request):
     msg_id = int(request.match_info['msg_id'])
@@ -159,7 +172,6 @@ async def stream_video(request):
         start = 0
         end = file_size - 1
 
-        # Range Parsing logic
         if range_header:
             match = re.search(r'bytes=(\d+)-(\d*)', range_header)
             if match:
@@ -175,11 +187,9 @@ async def stream_video(request):
             'Accept-Ranges': 'bytes',
         }
 
-        # Status 206 is crucial for seeking in large videos
         response = web.StreamResponse(status=206, headers=headers)
         await response.prepare(request)
 
-        # Pyrogram stream_media with offset
         async for chunk in app.stream_media(message, offset=start):
             await response.write(chunk)
 
