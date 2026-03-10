@@ -5,6 +5,7 @@ asyncio.set_event_loop(loop)
 
 import os
 import re
+import urllib.parse  # NAYA: URL ko safe banane ke liye
 from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -42,13 +43,11 @@ async def handle_video(client, message: Message):
         file_name = getattr(file, "file_name", None) or "MeraStream_Video.mp4"
         file_size = getattr(file, "file_size", 0)
         
-        # Size ko MB ya GB me convert karna
         if file_size < 1024 * 1024 * 1024:
             size_str = f"{file_size / (1024 * 1024):.2f} MB"
         else:
             size_str = f"{file_size / (1024 * 1024 * 1024):.2f} GB"
         
-        # Professional Inline Button
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("▶️ Play in MeraStream App", url=watch_link)]
         ])
@@ -81,16 +80,24 @@ async def get_thumb(request):
             thumb_data = await app.download_media(file.thumbs[0].file_id, in_memory=True)
             return web.Response(body=thumb_data.getvalue(), content_type='image/jpeg')
     except Exception as e:
-        print(f"Thumb error: {e}")
+        pass
     raise web.HTTPFound('https://i.imgur.com/your-fallback-logo.jpg')
 
-# SMART REDIRECT PAGE (SAFE VERSION - URL KAATEGA NAHI)
+# ✨ SMART REDIRECT PAGE (THE ULTIMATE FIX) ✨
 @routes.get('/watch/{msg_id}')
 async def watch_page(request):
     msg_id = request.match_info['msg_id']
     RENDER_URL = os.environ.get("RENDER_URL", "").strip().rstrip('/')
     
     stream_link = f"{RENDER_URL}/stream/{msg_id}"
+    
+    # 🔥 PRO TRICK: URL ko encode kiya taaki Android App confuse na ho
+    encoded_stream_link = urllib.parse.quote(stream_link, safe='')
+    
+    # INTENT URI: Ye Telegram browser ko force karta hai app auto-open karne ke liye
+    # (Apna package name com.merastream.app hi hai na, confirm kar lena)
+    intent_uri = f"intent://play?url={encoded_stream_link}#Intent;scheme=MeraStream;package=com.merastream.app;end;"
+    
     app_deep_link = f"MeraStream://play?url={stream_link}"
     thumb_link = f"{RENDER_URL}/thumb/{msg_id}.jpg"
     
@@ -120,22 +127,28 @@ async def watch_page(request):
             @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
             .btn {{
                 background-color: #e50914; color: white; padding: 15px 30px; text-decoration: none;
-                border-radius: 8px; font-weight: bold; font-size: 18px; margin-top: 20px;
+                border-radius: 8px; font-weight: bold; font-size: 18px; margin-top: 20px; display: none;
             }}
         </style>
     </head>
     <body>
         <div class="loader"></div>
-        <h2>Opening App...</h2>
-        <p>If not opened automatically, please click below.</p>
+        <h2>Opening App Automatically...</h2>
+        <p>You are being redirected securely.</p>
         
-        <a id="autoLink" href="{app_deep_link}" class="btn">CLICK TO OPEN APP</a>
+        <!-- Button ab chupa hua hai (display: none), sirf emergency me dikhega -->
+        <a id="autoLink" href="{intent_uri}" class="btn">CLICK TO OPEN APP</a>
 
         <script>
             window.onload = function() {{
+                // 1. DIRECT AUTO-OPEN (Bypasses Telegram blocks)
+                window.location.href = "{intent_uri}";
+                
+                // 2. Agar phir bhi 2 second me app na khule, toh Manual Button dikha do
                 setTimeout(function() {{
-                    window.location.href = "{app_deep_link}";
-                }}, 800);
+                    document.getElementById("autoLink").style.display = "inline-block";
+                    document.getElementById("autoLink").href = "{app_deep_link}"; // Fallback link
+                }}, 2000);
             }};
         </script>
     </body>
