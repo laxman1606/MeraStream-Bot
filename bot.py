@@ -5,7 +5,6 @@ asyncio.set_event_loop(loop)
 
 import os
 import re
-from io import BytesIO
 from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -19,10 +18,7 @@ PORT = int(os.environ.get("PORT", 8080))
 
 app = Client("MeraStreamBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# ==========================================
-# 🤖 BOT COMMANDS
-# ==========================================
-
+# --- BOT COMMANDS ---
 @app.on_message(filters.command("start"))
 async def start_msg(client, message: Message):
     await message.reply_text(
@@ -67,16 +63,14 @@ async def handle_video(client, message: Message):
     except Exception as e:
         await msg.edit_text(f"❌ Error: {e}")
 
-# ==========================================
-# 🌐 WEB SERVER & REDIRECT LOGIC
-# ==========================================
+# --- WEB SERVER LOGIC ---
 routes = web.RouteTableDef()
 
 @routes.get('/')
 async def hello(request):
     return web.Response(text="MeraStream Engine is ALIVE! 🚀", content_type='text/plain')
 
-# ✨ Asli Video Thumbnail dikhane ke liye Route ✨
+# THUMBNAIL ROUTE
 @routes.get('/thumb/{msg_id}.jpg')
 async def get_thumb(request):
     msg_id = int(request.match_info['msg_id'])
@@ -88,11 +82,9 @@ async def get_thumb(request):
             return web.Response(body=thumb_data.getvalue(), content_type='image/jpeg')
     except Exception as e:
         print(f"Thumb error: {e}")
-    
-    # Default image agar thumbnail na ho
     raise web.HTTPFound('https://i.imgur.com/your-fallback-logo.jpg')
 
-# ✨ SMART REDIRECT PAGE (Fix Auto-Open Issue with Android Intent) ✨
+# SMART REDIRECT PAGE (SAFE VERSION - URL KAATEGA NAHI)
 @routes.get('/watch/{msg_id}')
 async def watch_page(request):
     msg_id = request.match_info['msg_id']
@@ -101,10 +93,6 @@ async def watch_page(request):
     stream_link = f"{RENDER_URL}/stream/{msg_id}"
     app_deep_link = f"MeraStream://play?url={stream_link}"
     thumb_link = f"{RENDER_URL}/thumb/{msg_id}.jpg"
-    
-    # 🔥 PRO TRICK: Android Intent URI (Bypasses Telegram WebView Block)
-    # Note: 'com.merastream.app' tumhara Android Studio ka package name hai
-    intent_uri = f"intent://play?url={stream_link}#Intent;scheme=MeraStream;package=com.merastream.app;end;"
     
     html_content = f"""
     <!DOCTYPE html>
@@ -134,27 +122,20 @@ async def watch_page(request):
                 background-color: #e50914; color: white; padding: 15px 30px; text-decoration: none;
                 border-radius: 8px; font-weight: bold; font-size: 18px; margin-top: 20px;
             }}
-            img {{ max-width: 80%; border-radius: 10px; margin-top: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); display: none; }}
         </style>
     </head>
     <body>
         <div class="loader"></div>
-        <h2>Opening App Automatically...</h2>
-        <p>Please wait while we redirect you to the video.</p>
+        <h2>Opening App...</h2>
+        <p>If not opened automatically, please click below.</p>
         
-        <!-- Button me ab Intent URI laga hai -->
-        <a id="autoLink" href="{intent_uri}" class="btn">CLICK TO OPEN APP</a>
+        <a id="autoLink" href="{app_deep_link}" class="btn">CLICK TO OPEN APP</a>
 
         <script>
-            // Advanced Android WebView Bypass
             window.onload = function() {{
-                // Tarika 1: Direct Intent replace (Android OS native intercept karega)
-                window.location.replace("{intent_uri}");
-                
-                // Tarika 2: Agar Intent block ho jaye (kuch phones me), toh custom scheme try karega
                 setTimeout(function() {{
                     window.location.href = "{app_deep_link}";
-                }}, 1000);
+                }}, 800);
             }};
         </script>
     </body>
@@ -162,9 +143,7 @@ async def watch_page(request):
     """
     return web.Response(text=html_content, content_type='text/html')
 
-# ==========================================
-# 🚀 ADVANCED STREAMING ENGINE (Range Support)
-# ==========================================
+# STREAMING ENGINE (RANGE SUPPORT)
 @routes.get('/stream/{msg_id}')
 async def stream_video(request):
     msg_id = int(request.match_info['msg_id'])
