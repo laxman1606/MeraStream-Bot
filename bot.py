@@ -4,11 +4,12 @@ loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
 import os
+import re
 from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-# Tumhare environment variables ko safely extract karna
+# Tumhare environment variables
 API_ID_STR = os.environ.get("API_ID", "").strip()
 API_HASH = os.environ.get("API_HASH", "").strip()
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -40,7 +41,7 @@ app = Client(
 
 @app.on_message(filters.command("start"))
 async def start_msg(client, message: Message):
-    await message.reply_text("👋 Welcome to **MeraStream Bot**!\n\nMujhe koi bhi badi video file bhejo, mai tumhe Direct Streaming Link dunga!")
+    await message.reply_text("👋 Welcome to **MeraStream Pro Bot**!\n\nMujhe koi bhi badi video file (1GB+) bhejo, mai tumhe Direct Streaming Link dunga!")
 
 @app.on_message(filters.video | filters.document)
 async def handle_video(client, message: Message):
@@ -51,17 +52,14 @@ async def handle_video(client, message: Message):
     msg = await message.reply_text("⏳ Processing your video... Please wait bro!")
     
     try:
-        # Video ko DB channel me forward karna
+        # DB channel me forward karna
         forwarded_msg = await message.forward(CHANNEL_ID)
         file_id = forwarded_msg.id 
         
-        RENDER_URL = os.environ.get("RENDER_URL", "").strip()
-        if RENDER_URL.endswith('/'):
-            RENDER_URL = RENDER_URL[:-1]
+        RENDER_URL = os.environ.get("RENDER_URL", "").strip().rstrip('/')
             
         watch_link = f"{RENDER_URL}/watch/{file_id}"
         
-        # Professional Telegram Button
         keyboard = InlineKeyboardMarkup(
             [
                 [InlineKeyboardButton("▶️ Open in MeraStream App", url=watch_link)],
@@ -69,7 +67,7 @@ async def handle_video(client, message: Message):
             ]
         )
         
-        # File Name aur Size nikalna (MB aur GB me)
+        # File Name aur Size nikalna
         file = message.video or message.document
         file_name = getattr(file, "file_name", None) or "Unknown_Video.mp4"
         file_size = getattr(file, "file_size", 0)
@@ -79,7 +77,6 @@ async def handle_video(client, message: Message):
         else:
             file_size_str = f"{file_size / (1024 * 1024 * 1024):.2f} GB"
         
-        # Naya Professional Message
         await msg.edit_text(
             f"✅ **MeraStream Link Generated!**\n\n"
             f"🎬 **Name:** `{file_name}`\n"
@@ -93,7 +90,7 @@ async def handle_video(client, message: Message):
         await msg.edit_text(f"❌ Error aagaya bro: {e}")
 
 # ==========================================
-# 🌐 WEB SERVER (STREAMING & REDIRECT LOGIC)
+# 🌐 WEB SERVER (STREAMING & REDIRECT)
 # ==========================================
 
 routes = web.RouteTableDef()
@@ -102,7 +99,7 @@ routes = web.RouteTableDef()
 async def hello(request):
     return web.Response(text="✅ MeraStream Server is Running Perfectly! 🔥")
 
-# ✨ NAYA ROUTE: THUMBNAIL DIKHANE KE LIYE
+# THUMBNAIL ROUTE
 @routes.get('/thumb/{msg_id}.jpg')
 async def get_thumb(request):
     msg_id = int(request.match_info['msg_id'])
@@ -116,17 +113,14 @@ async def get_thumb(request):
         pass
     raise web.HTTPFound('https://i.imgur.com/your-fallback-logo.jpg')
 
-# ✨ SMART REDIRECT PAGE WITH INTENT
+# SMART REDIRECT PAGE
 @routes.get('/watch/{msg_id}')
 async def watch_page(request):
     msg_id = request.match_info['msg_id']
     RENDER_URL = os.environ.get("RENDER_URL", "").strip().rstrip('/')
     
     stream_link = f"{RENDER_URL}/stream/{msg_id}"
-    
-    # Intent URL - Jo directly app open karega bypass karke
     intent_uri = f"intent://play?url={stream_link}#Intent;scheme=MeraStream;package=com.merastream.app;end;"
-    # Fallback URL
     app_deep_link = f"MeraStream://play?url={stream_link}"
     thumb_link = f"{RENDER_URL}/thumb/{msg_id}.jpg"
     
@@ -136,13 +130,10 @@ async def watch_page(request):
     <head>
         <title>MeraStream - Watch Video</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        
-        <!-- Bada Thumbnail Preview ke liye -->
         <meta name="twitter:card" content="summary_large_image">
         <meta property="og:title" content="▶️ Play Video in MeraStream">
         <meta property="og:description" content="Click to stream this video directly in high quality.">
         <meta property="og:image" content="{thumb_link}">
-        
         <style>
             body {{ background-color: #121212; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 15%; }}
             .loader {{ border: 4px solid #333; border-top: 4px solid #E50914; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px auto; }}
@@ -154,15 +145,10 @@ async def watch_page(request):
         <div class="loader"></div>
         <h2>Opening App...</h2>
         <p>You are being redirected securely.</p>
-        
         <a id="autoLink" href="{app_deep_link}" class="btn">CLICK TO OPEN APP</a>
-        
         <script>
             window.onload = function() {{
-                // Koshish karega app seedha kholne ki (Intent se)
                 window.location.href = "{intent_uri}";
-                
-                // Agar block ho jaye, to 1.5s baad normal link wala button dikhayega
                 setTimeout(function() {{
                     document.getElementById("autoLink").style.display = "inline-block";
                 }}, 1500);
@@ -174,37 +160,68 @@ async def watch_page(request):
     return web.Response(text=html_page, content_type='text/html')
 
 # ==========================================
-# 🚀 TERA ORIGINAL STREAMING LOGIC (NO CHANGES HERE)
+# 🚀 SMART STREAMING ENGINE (RANGE SUPPORT FIX)
 # ==========================================
 @routes.get('/stream/{msg_id}')
 async def stream_video(request):
     msg_id = int(request.match_info['msg_id'])
+    range_header = request.headers.get('Range')
     
     try:
         message = await app.get_messages(CHANNEL_ID, msg_id)
         if not message or not (message.video or message.document):
             return web.Response(status=404, text="Video Not Found")
 
-        mime_type = message.video.mime_type if message.video else message.document.mime_type
+        file = message.video or message.document
+        file_size = file.file_size
+        mime_type = file.mime_type or 'video/mp4'
 
         headers = {
-            'Content-Type': mime_type or 'application/octet-stream',
+            'Content-Type': mime_type,
             'Accept-Ranges': 'bytes',
         }
-        
-        async def my_iter():
-            async for chunk in app.stream_media(message):
-                yield chunk
 
-        response = web.StreamResponse(headers=headers, status=200)
-        await response.prepare(request)
-        
-        async for chunk in my_iter():
-            await response.write(chunk)
+        # Agar Android Player tukdo me video maangta hai (Large Files)
+        if range_header:
+            start, end = 0, file_size - 1
+            match = re.search(r'bytes=(\d+)-(\d*)', range_header)
+            if match:
+                start = int(match.group(1))
+                if match.group(2):
+                    end = int(match.group(2))
+
+            length = end - start + 1
+            headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+            headers['Content-Length'] = str(length)
+
+            response = web.StreamResponse(status=206, headers=headers)
+            await response.prepare(request)
+
+            try:
+                # offset aur limit se utna hi data jayega jitna player ko chahiye
+                async for chunk in app.stream_media(message, offset=start, limit=length):
+                    await response.write(chunk)
+            except Exception:
+                pass # Agar user video band kar de to crash na ho
             
-        return response
+            return response
+
+        # Agar koi bina range ke download kar raha hai
+        else:
+            headers['Content-Length'] = str(file_size)
+            response = web.StreamResponse(status=200, headers=headers)
+            await response.prepare(request)
+
+            try:
+                async for chunk in app.stream_media(message):
+                    await response.write(chunk)
+            except Exception:
+                pass
+
+            return response
 
     except Exception as e:
+        print(f"Stream error: {e}")
         return web.Response(status=500, text=str(e))
 
 # ==========================================
