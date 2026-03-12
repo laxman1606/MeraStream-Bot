@@ -69,7 +69,7 @@ async def handle_video(client, message: Message):
         
         # File Name aur Size nikalna
         file = message.video or message.document
-        file_name = getattr(file, "file_name", None) or "Unknown_Video.mp4"
+        file_name = getattr(file, "file_name", None) or "MeraStream_Video.mp4"
         file_size = getattr(file, "file_size", 0)
 
         if file_size < 1024 * 1024 * 1024:
@@ -99,7 +99,6 @@ routes = web.RouteTableDef()
 async def hello(request):
     return web.Response(text="✅ MeraStream Server is Running Perfectly! 🔥")
 
-# THUMBNAIL ROUTE
 @routes.get('/thumb/{msg_id}.jpg')
 async def get_thumb(request):
     msg_id = int(request.match_info['msg_id'])
@@ -113,7 +112,6 @@ async def get_thumb(request):
         pass
     raise web.HTTPFound('https://i.imgur.com/your-fallback-logo.jpg')
 
-# SMART REDIRECT PAGE
 @routes.get('/watch/{msg_id}')
 async def watch_page(request):
     msg_id = request.match_info['msg_id']
@@ -160,12 +158,12 @@ async def watch_page(request):
     return web.Response(text=html_page, content_type='text/html')
 
 # ==========================================
-# 🚀 SMART STREAMING ENGINE (RANGE SUPPORT FIX)
+# 🚀 ULTIMATE STREAMING ENGINE (EXOPLAYER & DOWNLOAD FIX)
 # ==========================================
-@routes.get('/stream/{msg_id}')
+# DHYAN DO: '*' use kiya hai taaki GET aur HEAD dono request pass ho sakein
+@routes.route('*', '/stream/{msg_id}')
 async def stream_video(request):
     msg_id = int(request.match_info['msg_id'])
-    range_header = request.headers.get('Range')
     
     try:
         message = await app.get_messages(CHANNEL_ID, msg_id)
@@ -174,51 +172,55 @@ async def stream_video(request):
 
         file = message.video or message.document
         file_size = file.file_size
+        file_name = getattr(file, "file_name", "MeraStream_Video.mp4")
         mime_type = file.mime_type or 'video/mp4'
 
         headers = {
             'Content-Type': mime_type,
             'Accept-Ranges': 'bytes',
+            'Content-Disposition': f'inline; filename="{file_name}"' # Download Manager ko naam dene ke liye
         }
 
-        # Agar Android Player tukdo me video maangta hai (Large Files)
+        range_header = request.headers.get('Range')
+        status_code = 200
+        start = 0
+        end = file_size - 1
+
         if range_header:
-            start, end = 0, file_size - 1
             match = re.search(r'bytes=(\d+)-(\d*)', range_header)
             if match:
                 start = int(match.group(1))
                 if match.group(2):
                     end = int(match.group(2))
+            
+            # Agar range ghalat hai
+            if start >= file_size:
+                headers['Content-Range'] = f'bytes */{file_size}'
+                return web.Response(status=416, headers=headers)
 
-            length = end - start + 1
+            status_code = 206
             headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+            length = end - start + 1
+            headers['Content-Length'] = str(length)
+        else:
+            length = file_size
             headers['Content-Length'] = str(length)
 
-            response = web.StreamResponse(status=206, headers=headers)
-            await response.prepare(request)
+        # 🔥 SABSE BADA FIX: Android App ka 'HEAD' Request Handle Karna
+        if request.method == 'HEAD':
+            return web.Response(status=status_code, headers=headers)
 
-            try:
-                # offset aur limit se utna hi data jayega jitna player ko chahiye
-                async for chunk in app.stream_media(message, offset=start, limit=length):
-                    await response.write(chunk)
-            except Exception:
-                pass # Agar user video band kar de to crash na ho
-            
-            return response
+        # Data Stream Karna (GET Request)
+        response = web.StreamResponse(status=status_code, headers=headers)
+        await response.prepare(request)
 
-        # Agar koi bina range ke download kar raha hai
-        else:
-            headers['Content-Length'] = str(file_size)
-            response = web.StreamResponse(status=200, headers=headers)
-            await response.prepare(request)
+        try:
+            async for chunk in app.stream_media(message, offset=start, limit=length):
+                await response.write(chunk)
+        except Exception:
+            pass # Player ne video band kar di, connection close hone par crash roko
 
-            try:
-                async for chunk in app.stream_media(message):
-                    await response.write(chunk)
-            except Exception:
-                pass
-
-            return response
+        return response
 
     except Exception as e:
         print(f"Stream error: {e}")
@@ -227,7 +229,6 @@ async def stream_video(request):
 # ==========================================
 # 🚀 MAIN FUNCTION
 # ==========================================
-
 async def main():
     print("🌐 Starting Web Server...")
     webapp = web.Application()
