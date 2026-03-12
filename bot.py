@@ -9,7 +9,7 @@ from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-# Tumhare environment variables
+# Credentials (Environment Variables)
 API_ID_STR = os.environ.get("API_ID", "").strip()
 API_HASH = os.environ.get("API_HASH", "").strip()
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
@@ -108,7 +108,7 @@ async def get_thumb(request):
         if file and getattr(file, "thumbs", None):
             thumb_data = await app.download_media(file.thumbs[0].file_id, in_memory=True)
             return web.Response(body=thumb_data.getvalue(), content_type='image/jpeg')
-    except Exception as e:
+    except Exception:
         pass
     raise web.HTTPFound('https://i.imgur.com/your-fallback-logo.jpg')
 
@@ -158,9 +158,8 @@ async def watch_page(request):
     return web.Response(text=html_page, content_type='text/html')
 
 # ==========================================
-# 🚀 ULTIMATE STREAMING ENGINE (EXOPLAYER & DOWNLOAD FIX)
+# 🚀 THE ULTIMATE "BYTE-SLICER" STREAMING FIX
 # ==========================================
-# DHYAN DO: '*' use kiya hai taaki GET aur HEAD dono request pass ho sakein
 @routes.route('*', '/stream/{msg_id}')
 async def stream_video(request):
     msg_id = int(request.match_info['msg_id'])
@@ -178,47 +177,59 @@ async def stream_video(request):
         headers = {
             'Content-Type': mime_type,
             'Accept-Ranges': 'bytes',
-            'Content-Disposition': f'inline; filename="{file_name}"' # Download Manager ko naam dene ke liye
+            'Content-Disposition': f'inline; filename="{file_name}"'
         }
+
+        # Handle HEAD request for ExoPlayer and DownloadManager
+        if request.method == 'HEAD':
+            headers['Content-Length'] = str(file_size)
+            return web.Response(status=200, headers=headers)
 
         range_header = request.headers.get('Range')
         status_code = 200
-        start = 0
-        end = file_size - 1
 
         if range_header:
             match = re.search(r'bytes=(\d+)-(\d*)', range_header)
-            if match:
-                start = int(match.group(1))
-                if match.group(2):
-                    end = int(match.group(2))
-            
-            # Agar range ghalat hai
+            start = int(match.group(1)) if match else 0
+            # ExoPlayer kayi baar end byte nahi bhejta, toh hum file_size-1 maante hain
+            end = int(match.group(2)) if match and match.group(2) else file_size - 1
+
             if start >= file_size:
                 headers['Content-Range'] = f'bytes */{file_size}'
                 return web.Response(status=416, headers=headers)
 
-            status_code = 206
-            headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
             length = end - start + 1
+            headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
             headers['Content-Length'] = str(length)
+            status_code = 206
         else:
+            start = 0
+            end = file_size - 1
             length = file_size
             headers['Content-Length'] = str(length)
 
-        # 🔥 SABSE BADA FIX: Android App ka 'HEAD' Request Handle Karna
-        if request.method == 'HEAD':
-            return web.Response(status=status_code, headers=headers)
-
-        # Data Stream Karna (GET Request)
         response = web.StreamResponse(status=status_code, headers=headers)
         await response.prepare(request)
 
+        # ⚡ MANUAL BYTE SLICING ALGORITHM ⚡
+        # ExoPlayer jitna byte maangega, EXACTLY utna hi bheja jayega. Ek byte extra nahi!
+        yielded_bytes = 0
         try:
-            async for chunk in app.stream_media(message, offset=start, limit=length):
+            async for chunk in app.stream_media(message, offset=start):
+                chunk_size = len(chunk)
+                
+                # Agar chunk bhejne se length limit cross ho rahi hai, toh extra data kaat do (Slice)
+                if yielded_bytes + chunk_size > length:
+                    remaining_bytes = length - yielded_bytes
+                    await response.write(chunk[:remaining_bytes])
+                    break # Exact data bhej diya, ab loop band karo
+                
                 await response.write(chunk)
+                yielded_bytes += chunk_size
+                
         except Exception:
-            pass # Player ne video band kar di, connection close hone par crash roko
+            # Player ne aage/peeche bhagaya, toh connection cancel hoga. Isko chup-chap ignore karna hai.
+            pass
 
         return response
 
